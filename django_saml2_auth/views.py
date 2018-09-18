@@ -14,7 +14,6 @@ from django import get_version
 from pkg_resources import parse_version
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login, logout
 from django.shortcuts import render
@@ -23,6 +22,7 @@ from django.template import TemplateDoesNotExist
 from django.http import HttpResponseRedirect
 from django.utils.http import is_safe_url
 
+
 try:
     import urllib2 as _urllib
 except:
@@ -30,11 +30,6 @@ except:
     import urllib.error
     import urllib.parse
 
-if parse_version(get_version()) >= parse_version('1.7'):
-    from django.utils.module_loading import import_string
-else:
-    from django.utils.module_loading import import_by_path as import_string
-    
 
 User = get_user_model()
 
@@ -118,27 +113,11 @@ def denied(r):
     return render(r, 'django_saml2_auth/denied.html')
 
 
-def _create_new_user(username, email, firstname, lastname):
-    user = User.objects.create_user(username, email)
-    user.first_name = firstname
-    user.last_name = lastname
-    groups = [Group.objects.get(name=x) for x in settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('USER_GROUPS', [])]
-    if parse_version(get_version()) >= parse_version('2.0'):
-        user.groups.set(groups)
-    else:
-        user.groups = groups
-    user.is_active = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('ACTIVE_STATUS', True)
-    user.is_staff = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('STAFF_STATUS', True)
-    user.is_superuser = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('SUPERUSER_STATUS', False)
-    user.save()
-    return user
-
-
 @csrf_exempt
-def acs(r):
-    saml_client = _get_saml_client(get_current_domain(r))
-    resp = r.POST.get('SAMLResponse', None)
-    next_url = r.session.get('login_next_url', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
+def acs(request):
+    saml_client = _get_saml_client(get_current_domain(request))
+    resp = request.POST.get('SAMLResponse', None)
+    next_url = request.session.get('login_next_url', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
 
     if not resp:
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
@@ -148,44 +127,18 @@ def acs(r):
     if authn_response is None:
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
-    def get_nameid(string):
+    try:
         regex = '<saml2:NameID.*>(.*)<\/saml2:NameID>'
-        nameid = re.findall(regex, string)
-        return nameid[0].upper().lower()
-
-    try:
-        username = get_nameid(str(authn_response)).split('@')[0]
-    except IndexError:
+        nameid = re.findall(regex, str(authn_response))
+        username = nameid[0].split('@')[0].lower()
+        target_user = User.objects.filter(is_active=True).get(username__iexact=username)
+    except (User.DoesNotExist, IndexError):
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
-    target_user = None
-    is_new_user = False
+    request.session.flush()
+    target_user.backend = 'django.contrib.auth.backends.ModelBackend'
+    login(request, target_user)
 
-    try:
-        target_user = User.objects.get(username=username)
-    except User.DoesNotExist:
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
-        '''
-        target_user = _create_new_user(user_name, user_email, user_first_name, user_last_name)
-        is_new_user = True
-        '''
-
-    r.session.flush()
-
-    if target_user.is_active:
-        target_user.backend = 'django.contrib.auth.backends.ModelBackend'
-        login(r, target_user)
-    else:
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
-
-    '''
-    if is_new_user:
-        try:
-            return render(r, 'django_saml2_auth/welcome.html', {'user': r.user})
-        except TemplateDoesNotExist:
-            return HttpResponseRedirect(next_url)
-    else:
-    '''
     return HttpResponseRedirect(next_url)
 
 
