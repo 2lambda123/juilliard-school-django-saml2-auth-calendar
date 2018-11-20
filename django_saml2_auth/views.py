@@ -2,6 +2,7 @@
 # -*- coding:utf-8 -*-
 
 import re
+import logging
 from saml2 import (
     BINDING_HTTP_POST,
     BINDING_HTTP_REDIRECT,
@@ -32,6 +33,7 @@ except:
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def get_current_domain(r):
@@ -120,11 +122,13 @@ def acs(request):
     next_url = request.session.get('login_next_url', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
 
     if not resp:
+        logger.error('No SAMLResponse')
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
     authn_response = saml_client.parse_authn_request_response(
         resp, entity.BINDING_HTTP_POST)
     if authn_response is None:
+        logger.error('No authn response after parsing request')
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
     try:
@@ -133,6 +137,7 @@ def acs(request):
         username = nameid[0].split('@')[0].lower()
         target_user = User.objects.filter(is_active=True).get(username__iexact=username)
     except (User.DoesNotExist, IndexError):
+        logger.error('Could not find user in response. NameID: {}'.format(nameid))
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
     request.session.flush()
@@ -159,6 +164,7 @@ def signin(r):
 
     # Only permit signin requests where the next_url is a safe URL
     if not is_safe_url(next_url):
+        logger.error('Next URL is not safe url in Okta login.')
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
 
     r.session['login_next_url'] = next_url
