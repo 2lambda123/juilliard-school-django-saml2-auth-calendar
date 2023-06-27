@@ -134,7 +134,8 @@ def acs(request):
     try:
         regex = '<saml2:NameID.*>(.*)<\/saml2:NameID>'
         nameid = re.findall(regex, str(authn_response))
-        username = nameid[0].split('@')[0].lower()
+        email = nameid[0]
+        username = email.split('@')[0].lower()
     except IndexError:
         logger.error('Could not find user in response. NameID: {}'.format(nameid))
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
