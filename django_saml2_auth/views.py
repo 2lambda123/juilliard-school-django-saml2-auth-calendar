@@ -145,6 +145,7 @@ def acs(request):
     except User.DoesNotExist:
         target_user = User.objects.create_user(username, email)
         target_user.is_active = True
+        target_user.is_staff = True
         target_user.save()    
 
     request.session.flush()
