@@ -143,7 +143,7 @@ def acs(request):
     try:        
         target_user = User.objects.filter(is_active=True).get(username__iexact=username)
     except User.DoesNotExist:
-        target_user = User.objects.create_user(username, nameid)
+        target_user = User.objects.create_user(username, email)
         target_user.is_active = True
         target_user.save()    
 
