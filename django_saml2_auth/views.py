@@ -135,10 +135,16 @@ def acs(request):
         regex = '<saml2:NameID.*>(.*)<\/saml2:NameID>'
         nameid = re.findall(regex, str(authn_response))
         username = nameid[0].split('@')[0].lower()
-        target_user = User.objects.filter(is_active=True).get(username__iexact=username)
-    except (User.DoesNotExist, IndexError):
+    except IndexError:
         logger.error('Could not find user in response. NameID: {}'.format(nameid))
         return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
+    
+    try:        
+        target_user = User.objects.filter(is_active=True).get(username__iexact=username)
+    except User.DoesNotExist:
+        target_user = User.objects.create_user(username, email)
+        target_user.is_active = True
+        target_user.save()    
 
     request.session.flush()
     target_user.backend = 'django.contrib.auth.backends.ModelBackend'
